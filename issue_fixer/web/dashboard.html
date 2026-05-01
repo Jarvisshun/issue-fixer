@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue Fixer - Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh}
+.nav{background:#161b22;border-bottom:1px solid #30363d;padding:12px 24px;display:flex;align-items:center;gap:16px}
+.nav a{color:#58a6ff;text-decoration:none;font-size:14px}
+.nav a:hover{text-decoration:underline}
+.nav .title{color:#f0f6fc;font-weight:600;font-size:16px}
+.container{max-width:1200px;margin:0 auto;padding:24px}
+h1{font-size:24px;margin-bottom:24px;color:#f0f6fc}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
+.stat-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;text-align:center}
+.stat-value{font-size:36px;font-weight:700;color:#58a6ff}
+.stat-label{font-size:13px;color:#8b949e;margin-top:4px}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px}
+.chart-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px}
+.chart-card h3{font-size:14px;color:#f0f6fc;margin-bottom:16px}
+.chart-container{position:relative;height:280px}
+.table-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin-bottom:24px}
+.table-card h3{font-size:14px;color:#f0f6fc;margin-bottom:16px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #21262d;font-size:13px}
+th{color:#8b949e;font-weight:500}
+td{color:#c9d1d9}
+.badge{padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500}
+.badge-success{background:#238636;color:#fff}
+.badge-fail{background:#da3633;color:#fff}
+.badge-type{background:#30363d;color:#c9d1d9}
+.empty{text-align:center;padding:48px;color:#8b949e}
+</style>
+</head>
+<body>
+<div class="nav">
+    <span class="title">Issue Fixer</span>
+    <a href="/">Home</a>
+    <a href="/dashboard">Dashboard</a>
+</div>
+
+<div class="container">
+    <h1>Fix Statistics Dashboard</h1>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="totalFixes">-</div>
+            <div class="stat-label">Total Fixes</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="successRate">-</div>
+            <div class="stat-label">Success Rate</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="avgScore">-</div>
+            <div class="stat-label">Avg Review Score</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="topRepo">-</div>
+            <div class="stat-label">Most Active Repo</div>
+        </div>
+    </div>
+
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h3>Success Rate by Issue Type</h3>
+            <div class="chart-container">
+                <canvas id="typeChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card">
+            <h3>Pipeline Comparison</h3>
+            <div class="chart-container">
+                <canvas id="pipelineChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-card">
+        <h3>Recent Fixes</h3>
+        <table>
+            <thead>
+                <tr><th>Time</th><th>Issue Type</th><th>Pipeline</th><th>Score</th><th>Result</th></tr>
+            </thead>
+            <tbody id="recentTable">
+                <tr><td colspan="5" class="empty">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="table-card">
+        <h3>Top Repositories</h3>
+        <table>
+            <thead>
+                <tr><th>Repository</th><th>Fix Count</th></tr>
+            </thead>
+            <tbody id="repoTable">
+                <tr><td colspan="2" class="empty">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function loadStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        const data = await resp.json();
+        renderStats(data);
+    } catch (e) {
+        console.error('Failed to load stats:', e);
+    }
+}
+
+function renderStats(data) {
+    // Summary cards
+    document.getElementById('totalFixes').textContent = data.total_fixes;
+    document.getElementById('successRate').textContent = (data.success_rate * 100).toFixed(0) + '%';
+
+    // Avg score
+    const scores = data.timeline.filter(t => t.review_score > 0).map(t => t.review_score);
+    const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(0) : '-';
+    document.getElementById('avgScore').textContent = avg;
+
+    // Top repo
+    document.getElementById('topRepo').textContent = data.top_repos.length ? data.top_repos[0].repo.split('/').pop() : '-';
+
+    // Type chart
+    const typeLabels = Object.keys(data.by_type);
+    const typeSuccess = typeLabels.map(t => data.by_type[t].success);
+    const typeFail = typeLabels.map(t => data.by_type[t].total - data.by_type[t].success);
+
+    new Chart(document.getElementById('typeChart'), {
+        type: 'bar',
+        data: {
+            labels: typeLabels,
+            datasets: [
+                { label: 'Success', data: typeSuccess, backgroundColor: '#238636' },
+                { label: 'Failed', data: typeFail, backgroundColor: '#da3633' },
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#c9d1d9' } } },
+            scales: {
+                x: { stacked: true, ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+                y: { stacked: true, ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+            }
+        }
+    });
+
+    // Pipeline chart
+    const pipeLabels = Object.keys(data.by_pipeline);
+    const pipeRates = pipeLabels.map(p => (data.by_pipeline[p].rate * 100).toFixed(0));
+
+    new Chart(document.getElementById('pipelineChart'), {
+        type: 'doughnut',
+        data: {
+            labels: pipeLabels,
+            datasets: [{
+                data: pipeLabels.map(p => data.by_pipeline[p].total),
+                backgroundColor: ['#58a6ff', '#f0883e', '#a371f7', '#3fb950'],
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#c9d1d9' } },
+            }
+        }
+    });
+
+    // Recent fixes table
+    const tbody = document.getElementById('recentTable');
+    if (data.timeline.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No fixes recorded yet</td></tr>';
+    } else {
+        tbody.innerHTML = data.timeline.slice().reverse().map(t => {
+            const time = t.timestamp ? new Date(t.timestamp).toLocaleString() : '-';
+            const badge = t.success ? '<span class="badge badge-success">OK</span>' : '<span class="badge badge-fail">FAIL</span>';
+            return `<tr>
+                <td>${time}</td>
+                <td><span class="badge badge-type">${t.issue_type || '-'}</span></td>
+                <td>${t.pipeline}</td>
+                <td>${t.review_score || '-'}</td>
+                <td>${badge}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Repo table
+    const repoBody = document.getElementById('repoTable');
+    if (data.top_repos.length === 0) {
+        repoBody.innerHTML = '<tr><td colspan="2" class="empty">No data yet</td></tr>';
+    } else {
+        repoBody.innerHTML = data.top_repos.map(r =>
+            `<tr><td>${r.repo}</td><td>${r.count}</td></tr>`
+        ).join('');
+    }
+}
+
+loadStats();
+</script>
+</body>
+</html>

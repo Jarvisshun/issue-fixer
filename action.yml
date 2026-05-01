@@ -1,0 +1,70 @@
+name: 'Issue Fixer'
+description: 'AI Agent that automatically fixes GitHub Issues using LLM and creates Pull Requests'
+author: 'Jarvisshun'
+
+branding:
+  icon: 'cpu'
+  color: 'blue'
+
+inputs:
+  issue-url:
+    description: 'GitHub Issue URL to fix (e.g., https://github.com/owner/repo/issues/42)'
+    required: true
+  openai-api-key:
+    description: 'OpenAI API key (or compatible provider)'
+    required: true
+  openai-base-url:
+    description: 'LLM API base URL'
+    required: false
+    default: 'https://api.openai.com/v1'
+  openai-model:
+    description: 'LLM model name'
+    required: false
+    default: 'gpt-4o'
+  github-token:
+    description: 'GitHub token for PR creation'
+    required: false
+    default: ${{ github.token }}
+  mode:
+    description: 'Fix mode: diff (patch) or full (rewrite)'
+    required: false
+    default: 'diff'
+  agent:
+    description: 'Use Multi-Agent pipeline (true/false)'
+    required: false
+    default: 'true'
+  sandbox:
+    description: 'Run syntax verification after fix (true/false)'
+    required: false
+    default: 'false'
+  max-files:
+    description: 'Maximum files to fix'
+    required: false
+    default: '5'
+  create-pr:
+    description: 'Create a Pull Request (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  pr-url:
+    description: 'URL of the created Pull Request'
+  files-changed:
+    description: 'List of files that were modified'
+  confidence:
+    description: 'Confidence score of the fix (0-100)'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.issue-url }}
+    - ${{ inputs.openai-api-key }}
+    - ${{ inputs.openai-base-url }}
+    - ${{ inputs.openai-model }}
+    - ${{ inputs.github-token }}
+    - ${{ inputs.mode }}
+    - ${{ inputs.agent }}
+    - ${{ inputs.sandbox }}
+    - ${{ inputs.max-files }}
+    - ${{ inputs.create-pr }}

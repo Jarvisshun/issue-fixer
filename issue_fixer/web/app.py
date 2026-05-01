@@ -24,8 +24,9 @@ from ..code_indexer import CodeIndexer
 from ..analyzer import Analyzer
 from ..agents import AgentOrchestrator
 from ..test_runner import verify_fix
+from ..feedback import feedback_store
 
-app = FastAPI(title="Issue Fixer", version="0.3.0")
+app = FastAPI(title="Issue Fixer", version="0.4.0")
 
 # ─── Webhook job tracking ────────────────────────────────────────────────────
 _jobs: dict[str, dict] = {}
@@ -55,6 +56,49 @@ async def index():
     """Serve the main HTML page."""
     html_path = Path(__file__).parent / "index.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """Serve the statistics dashboard."""
+    html_path = Path(__file__).parent / "dashboard.html"
+    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Return fix statistics for the dashboard."""
+    stats = feedback_store.get_stats()
+    records = feedback_store.get_all_records()
+
+    # Build timeline data (last 30 entries)
+    timeline = []
+    for r in records[-30:]:
+        timeline.append({
+            "timestamp": r.timestamp,
+            "success": r.success,
+            "issue_type": r.issue_type,
+            "pipeline": r.pipeline,
+            "mode": r.mode,
+            "review_score": r.review_score,
+            "model": r.model,
+        })
+
+    # Top repos
+    repo_counts: dict[str, int] = {}
+    for r in records:
+        repo_counts[r.repo] = repo_counts.get(r.repo, 0) + 1
+    top_repos = sorted(repo_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    return {
+        "total_fixes": stats.total_fixes,
+        "successful_fixes": stats.successful_fixes,
+        "success_rate": stats.success_rate,
+        "by_type": stats.by_type,
+        "by_pipeline": stats.by_pipeline,
+        "top_repos": [{"repo": r, "count": c} for r, c in top_repos],
+        "timeline": timeline,
+    }
 
 
 @app.get("/api/config")

@@ -21,6 +21,7 @@ from .review_agent import ReviewAgent
 from ..code_indexer import CodeIndexer
 from ..dependency import build_dependency_graph, find_affected_files, format_dependency_report
 from ..scoring import compute_confidence, format_confidence
+from ..plugins import plugin_manager
 
 console = Console(force_terminal=True)
 
@@ -64,6 +65,19 @@ class AgentOrchestrator:
             f"Confidence queries: {len(ctx.search_queries)}[/dim]"
         )
 
+        # Plugin hook: on_analyze
+        if plugin_manager.has_plugins():
+            plugin_ctx = {
+                "issue_type": ctx.issue_type,
+                "root_cause": ctx.root_cause,
+                "search_queries": ctx.search_queries,
+                "affected_areas": ctx.affected_areas,
+            }
+            plugin_ctx = plugin_manager.run_on_analyze(ctx.issue, plugin_ctx)
+            ctx.search_queries = plugin_ctx.get("search_queries", ctx.search_queries)
+            ctx.affected_areas = plugin_ctx.get("affected_areas", ctx.affected_areas)
+            console.print(f"  [dim]  Plugins: {len(plugin_manager.plugins)} active[/dim]")
+
         # Stage 2: Search
         console.print("  [dim]→ Search Agent: finding relevant code...[/dim]")
         ctx = self.search.run(ctx)
@@ -83,6 +97,15 @@ class AgentOrchestrator:
                 f"(iteration {ctx.iteration})...[/dim]"
             )
             ctx = self.fix.run(ctx)
+
+            # Plugin hook: on_fix
+            if plugin_manager.has_plugins():
+                ctx.files_to_fix = plugin_manager.run_on_fix(ctx.files_to_fix, {
+                    "issue": ctx.issue,
+                    "issue_type": ctx.issue_type,
+                    "root_cause": ctx.root_cause,
+                })
+
             console.print(
                 f"  [dim]  Generated fixes for {len(ctx.files_to_fix)} file(s)[/dim]"
             )
@@ -110,6 +133,23 @@ class AgentOrchestrator:
             # Stage 4: Review
             console.print("  [dim]→ Review Agent: validating fix quality...[/dim]")
             ctx = self.review.run(ctx)
+
+            # Plugin hook: on_review
+            if plugin_manager.has_plugins():
+                review_data = {
+                    "approved": ctx.review_approved,
+                    "score": ctx.review_score,
+                    "feedback": ctx.review_feedback,
+                }
+                review_data = plugin_manager.run_on_review(review_data, {
+                    "issue": ctx.issue,
+                    "files_to_fix": ctx.files_to_fix,
+                    "iteration": ctx.iteration,
+                })
+                ctx.review_approved = review_data.get("approved", ctx.review_approved)
+                ctx.review_score = review_data.get("score", ctx.review_score)
+                ctx.review_feedback = review_data.get("feedback", ctx.review_feedback)
+
             console.print(
                 f"  [dim]  Score: {ctx.review_score}/100, "
                 f"Approved: {ctx.review_approved}[/dim]"

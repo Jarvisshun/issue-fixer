@@ -31,6 +31,11 @@
 - **增量索引**：后续运行只重新索引变化的文件（基于哈希的变更检测）
 - **Web UI**：基于浏览器的可视化界面，方便操作
 - **多模型支持**：兼容任何 OpenAI 格式的 API（OpenAI、DeepSeek、MiMo 等）
+- **GitHub Action**：可在 GitHub Marketplace 一键安装，集成到 CI/CD 流水线
+- **修复统计 Dashboard**：Web 图表展示修复成功率、Issue 类型分布、趋势等数据
+- **Slack/Discord 通知**：修复完成后推送到团队聊天工具
+- **插件系统**：支持自定义分析规则、修复策略、审查检查
+- **多语言 Prompt 优化**：针对 Python、JS/TS、Go、Java、Rust、C/C++ 的专门 prompt
 
 ## 演示
 

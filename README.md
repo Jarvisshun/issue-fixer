@@ -31,6 +31,11 @@
 - **Incremental Indexing**: Only re-indexes changed files on subsequent runs (hash-based change detection)
 - **Web UI**: Browser-based interface for easy issue fixing
 - **Multi-model Support**: Works with any OpenAI-compatible API (OpenAI, DeepSeek, MiMo, etc.)
+- **GitHub Action**: Available on GitHub Marketplace for one-click CI/CD integration
+- **Statistics Dashboard**: Web-based dashboard with charts showing fix success rates, issue types, and trends
+- **Slack/Discord Notifications**: Push fix results to team chat tools via webhooks
+- **Plugin System**: Extend with custom analysis rules, fix strategies, and review checks
+- **Multi-language Prompts**: Language-specific bug patterns and best practices for Python, JS/TS, Go, Java, Rust, C/C++
 
 ## Demo
 
@@ -192,6 +197,11 @@ Issue URL → GitHub Client → Code Indexer
 
 ```
 issue-fixer/
+├── action.yml               # GitHub Action metadata
+├── Dockerfile               # Container for GitHub Action
+├── entrypoint.sh            # Action entrypoint script
+├── .github/workflows/
+│   └── issue-fixer-example.yml  # Example workflow
 ├── issue_fixer/
 │   ├── __init__.py          # Package init
 │   ├── config.py            # Configuration management (OpenAI + Ollama)
@@ -203,6 +213,9 @@ issue-fixer/
 │   ├── dependency.py        # Cross-file dependency analysis
 │   ├── sandbox.py           # Code syntax verification sandbox
 │   ├── scoring.py           # Confidence scoring (0-100)
+│   ├── lang_prompts.py      # Multi-language prompt templates
+│   ├── notifier.py          # Slack/Discord/webhook notifications
+│   ├── plugins.py           # Plugin system for custom rules
 │   ├── test_runner.py       # Test verification framework
 │   ├── main.py              # CLI entry point
 │   ├── agents/              # Multi-Agent system
@@ -216,8 +229,9 @@ issue-fixer/
 │   │   └── orchestrator.py  # Pipeline orchestrator
 │   └── web/
 │       ├── __init__.py
-│       ├── app.py           # FastAPI backend + webhook handler
-│       └── index.html       # Web UI frontend
+│       ├── app.py           # FastAPI backend + webhook + dashboard API
+│       ├── index.html       # Web UI frontend
+│       └── dashboard.html   # Statistics dashboard
 ├── pyproject.toml           # Project configuration
 ├── .env.example             # Environment variable template
 ├── .gitignore
@@ -296,6 +310,67 @@ python -m pytest tests/
 
 # Start web UI for development
 issue-fixer web --port 8000
+```
+
+## GitHub Action
+
+Use Issue Fixer as a GitHub Action to auto-fix issues in your CI/CD pipeline:
+
+```yaml
+# .github/workflows/fix-issues.yml
+name: Auto-Fix Issues
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Jarvisshun/issue-fixer@main
+        with:
+          issue-url: ${{ github.event.issue.html_url }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          agent: 'true'
+        id: fix
+
+      - uses: actions/github-script@v7
+        if: steps.fix.outputs.pr-url
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🤖 Fixed! PR: ${{ steps.fix.outputs.pr-url }}`
+            })
+```
+
+## Notifications
+
+Configure Slack/Discord notifications by setting environment variables:
+
+```bash
+export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+export DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+## Plugin System
+
+Extend Issue Fixer with custom rules by placing Python files in `~/.issue-fixer/plugins/`:
+
+```python
+# ~/.issue-fixer/plugins/security_rules.py
+def on_analyze(issue, context):
+    if 'security' in issue.get('labels', []):
+        context['search_queries'].append('vulnerability CVE exploit')
+    return context
+
+def on_review(review_result, context):
+    if len(context.get('files_to_fix', [])) > 5:
+        review_result['approved'] = False
+        review_result['feedback'] = 'Too many files. Split into smaller PRs.'
+    return review_result
 ```
 
 ## How It Works

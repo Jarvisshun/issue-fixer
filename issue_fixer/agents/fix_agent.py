@@ -14,6 +14,7 @@ from .base import BaseAgent
 from .context import AgentContext
 from ..patcher import PatchBlock, apply_patch
 from ..feedback import feedback_store
+from ..lang_prompts import get_language_guidelines
 
 DIFF_PROMPT = """You are a senior software engineer generating targeted code fixes.
 
@@ -113,6 +114,12 @@ class FixAgent(BaseAgent):
         )
         if test_context:
             user_content += f"\n\n## Related Test Code\n\n{test_context}"
+
+        # Add language-specific guidelines
+        candidate_files = [c["file"] for c in ctx.relevant_chunks + ctx.test_chunks]
+        lang_guidelines = get_language_guidelines(candidate_files)
+        if lang_guidelines:
+            user_content += f"\n\n{lang_guidelines}"
 
         # Add few-shot examples from feedback learning
         examples = feedback_store.format_examples_for_prompt(ctx.issue_type, limit=2)

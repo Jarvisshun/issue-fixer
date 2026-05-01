@@ -26,6 +26,7 @@ from .agents import AgentOrchestrator
 from .test_runner import verify_fix
 from .sandbox import verify_files, summarize_results
 from .feedback import feedback_store, FixRecord
+from .notifier import send_notifications
 
 console = Console(force_terminal=True)
 
@@ -276,6 +277,19 @@ def fix(issue_url: str, no_pr: bool, max_files: int, verify: bool, mode: str, ag
             review_score=result.get("review_score", 0),
             model=config.openai_model,
         ))
+        # Send notifications
+        notif_results = send_notifications(
+            issue_title=issue["title"],
+            issue_url=issue_url,
+            files_changed=changed_files,
+            confidence=result.get("confidence", 0),
+            pr_url=pr_url,
+            success=True,
+        )
+        if notif_results:
+            for ch, ok in notif_results.items():
+                status = "sent" if ok else "failed"
+                console.print(f"  [dim]Notification ({ch}): {status}[/dim]")
     except Exception as e:
         console.print(f"\n[red]Failed to create PR: {e}[/red]")
         console.print("[yellow]You may need write access to the repository.[/yellow]")

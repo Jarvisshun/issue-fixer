@@ -1,0 +1,42 @@
+# Example: Auto-fix new issues with Issue Fixer
+# Copy this file to your repository's .github/workflows/ directory
+
+name: Auto-Fix Issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  fix-issue:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.issue.title, '[skip-fix]')"
+
+    steps:
+      - name: Fix Issue with AI
+        uses: Jarvisshun/issue-fixer@main
+        with:
+          issue-url: ${{ github.event.issue.html_url }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          mode: 'diff'
+          agent: 'true'
+          create-pr: 'true'
+        id: fix
+
+      - name: Comment on Issue
+        if: steps.fix.outputs.pr-url
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🤖 **Issue Fixer** has analyzed this issue and created a PR:\n\n${{ steps.fix.outputs.pr-url }}\n\nConfidence: ${{ steps.fix.outputs.confidence }}/100`
+            })
