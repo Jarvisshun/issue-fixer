@@ -17,6 +17,7 @@ class Config:
     openai_base_url: str = field(default_factory=lambda: os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"))
     openai_model: str = field(default_factory=lambda: os.environ.get("OPENAI_MODEL", "gpt-4o"))
     github_token: str = field(default_factory=lambda: os.environ.get("GITHUB_TOKEN", ""))
+    github_webhook_secret: str = field(default_factory=lambda: os.environ.get("GITHUB_WEBHOOK_SECRET", ""))
 
     # RAG settings
     chunk_size: int = 1500

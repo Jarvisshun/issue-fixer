@@ -18,6 +18,10 @@
 - **Automated Issue Analysis**: Reads issue title, body, labels, and comments to understand the problem
 - **RAG-based Code Search**: Indexes the repository code with ChromaDB and finds relevant files using semantic search
 - **LLM-powered Fix Generation**: Uses large language models to analyze root causes and generate complete file fixes
+- **Diff/Patch Mode**: Generates targeted SEARCH/REPLACE patches (industry-standard pattern used by Aider, Cursor, SWE-agent)
+- **Multi-Agent Pipeline**: Four specialized agents (Analyzer, Search, Fix, Review) collaborate for higher quality fixes
+- **Feedback Learning**: Records fix history and uses past successes as few-shot examples to improve future fixes
+- **GitHub Webhook**: Auto-triggers fix pipeline when new issues are opened
 - **Automatic PR Creation**: Creates a new branch, commits the fix, and opens a Pull Request
 - **Test Verification**: Runs the project's test suite before and after the fix to detect regressions
 - **Incremental Indexing**: Only re-indexes changed files on subsequent runs (hash-based change detection)
@@ -107,46 +111,77 @@ issue-fixer web
 
 ## Architecture
 
+### Single-Agent Pipeline (default)
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Issue Fixer                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  GitHub Issue URL                                           │
-│       │                                                     │
-│       ▼                                                     │
-│  ┌──────────────┐     ┌───────────────┐                    │
-│  │    GitHub     │     │     Code      │                    │
-│  │    Client     │────▶│   Indexer     │                    │
-│  │              │     │ (RAG/ChromaDB) │                    │
-│  └──────┬───────┘     └───────┬───────┘                    │
-│         │                     │                             │
-│         ▼                     ▼                             │
-│  ┌───────────────────────────────────┐                     │
-│  │         LLM Analyzer              │                     │
-│  │  ┌──────────┐  ┌──────────────┐   │                     │
-│  │  │  Issue    │  │ Code Search  │   │                     │
-│  │  │ Analysis  │  │   Results    │   │                     │
-│  │  └────┬─────┘  └──────┬───────┘   │                     │
-│  │       └───────┬───────┘           │                     │
-│  │               ▼                   │                     │
-│  │       Fix Generation              │                     │
-│  └───────────────┬───────────────────┘                     │
-│                  │                                          │
-│                  ▼                                          │
-│  ┌───────────────────────────────────┐                     │
-│  │    Test Runner (optional)         │                     │
-│  │  Baseline tests -> Apply fix ->   │                     │
-│  │  After-fix tests -> Verdict       │                     │
-│  └───────────────┬───────────────────┘                     │
-│                  │                                          │
-│                  ▼                                          │
-│  ┌───────────────────────────────────┐                     │
-│  │       PR Creator                  │                     │
-│  │  Create branch -> Commit -> PR    │                     │
-│  └───────────────────────────────────┘                     │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+Issue URL → GitHub Client → Code Indexer → LLM Analyzer → PR Creator
+```
+
+### Multi-Agent Pipeline (`--agent`)
+
+```
+Issue URL → GitHub Client → Code Indexer
+                                    │
+                    ┌───────────────┘
+                    ▼
+         ┌─────────────────┐
+         │  Analyzer Agent  │  Classify issue, identify root cause
+         └────────┬────────┘
+                  ▼
+         ┌─────────────────┐
+         │   Search Agent   │  Multi-strategy RAG search
+         └────────┬────────┘
+                  ▼
+         ┌─────────────────┐     ┌──────────────┐
+         │    Fix Agent     │────▶│ Review Agent  │
+         │ Generate patches │◀───│ Validate fix  │
+         └────────┬────────┘     └──────────────┘
+                  │                  (retry loop)
+                  ▼
+            PR Creator + Feedback Learning
+```
+
+### Full Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Issue Fixer                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  GitHub Issue URL  ──── or ────  GitHub Webhook                 │
+│       │                              │                          │
+│       ▼                              ▼                          │
+│  ┌──────────────┐            ┌──────────────┐                  │
+│  │    GitHub     │            │   Webhook    │                  │
+│  │    Client     │            │   Handler    │                  │
+│  └──────┬───────┘            └──────┬───────┘                  │
+│         │                           │                           │
+│         ▼                           ▼                           │
+│  ┌──────────────┐     ┌───────────────────────┐                │
+│  │     Code      │     │  Multi-Agent Pipeline │                │
+│  │   Indexer     │     │  ┌───────────────┐   │                │
+│  │ (RAG/ChromaDB)│────▶│  │Analyzer Agent │   │                │
+│  └───────────────┘     │  ├───────────────┤   │                │
+│                        │  │ Search Agent  │   │                │
+│                        │  ├───────────────┤   │                │
+│                        │  │  Fix Agent    │◀──┤                │
+│                        │  ├───────────────┤   │ (review loop)  │
+│                        │  │ Review Agent  │───┘                │
+│                        │  └───────┬───────┘   │                │
+│                        └──────────┼───────────┘                │
+│                                   │                             │
+│                                   ▼                             │
+│  ┌───────────────────────────────────────────────┐             │
+│  │  Feedback Learning System                      │             │
+│  │  Record outcomes → Few-shot examples → Improve │             │
+│  └───────────────────────────┬───────────────────┘             │
+│                               │                                 │
+│                               ▼                                 │
+│  ┌───────────────────────────────────────────────┐             │
+│  │  Test Runner (optional) | PR Creator           │             │
+│  └───────────────────────────────────────────────┘             │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Project Structure
@@ -158,12 +193,23 @@ issue-fixer/
 │   ├── config.py            # Configuration management
 │   ├── github_client.py     # GitHub API client (issues, repos, PRs)
 │   ├── code_indexer.py      # RAG code indexer with incremental updates
-│   ├── analyzer.py          # LLM-powered issue analyzer
+│   ├── analyzer.py          # LLM-powered issue analyzer (single-agent)
+│   ├── patcher.py           # Diff/patch engine (SEARCH/REPLACE)
+│   ├── feedback.py          # Feedback learning system
 │   ├── test_runner.py       # Test verification framework
 │   ├── main.py              # CLI entry point
+│   ├── agents/              # Multi-Agent system
+│   │   ├── __init__.py
+│   │   ├── context.py       # Shared agent context
+│   │   ├── base.py          # Base agent class
+│   │   ├── analyzer_agent.py
+│   │   ├── search_agent.py
+│   │   ├── fix_agent.py
+│   │   ├── review_agent.py
+│   │   └── orchestrator.py  # Pipeline orchestrator
 │   └── web/
 │       ├── __init__.py
-│       ├── app.py           # FastAPI backend
+│       ├── app.py           # FastAPI backend + webhook handler
 │       └── index.html       # Web UI frontend
 ├── pyproject.toml           # Project configuration
 ├── .env.example             # Environment variable template
@@ -181,7 +227,11 @@ issue-fixer/
 | `issue-fixer fix <URL> --no-pr` | Analyze only, no PR |
 | `issue-fixer fix <URL> --verify` | Run test verification |
 | `issue-fixer fix <URL> --max-files 10` | Process up to 10 files |
+| `issue-fixer fix <URL> --mode diff` | Use diff/patch mode (default) |
+| `issue-fixer fix <URL> --mode full` | Use full file rewrite mode |
+| `issue-fixer fix <URL> --agent` | Use Multi-Agent pipeline with review loop |
 | `issue-fixer web` | Start Web UI |
+| `issue-fixer stats` | Show fix history and success rate |
 | `issue-fixer info` | Show current configuration |
 
 ## Configuration
@@ -238,6 +288,7 @@ issue-fixer web --port 8000
 
 ## How It Works
 
+### Single-Agent Mode (default)
 1. **Issue Parsing**: Extracts issue details (title, body, labels, comments) from GitHub API
 2. **Repository Cloning**: Shallow-clones the target repository to local cache
 3. **Code Indexing**: Splits code files into chunks and indexes them in ChromaDB for semantic search
@@ -245,6 +296,36 @@ issue-fixer web --port 8000
 5. **LLM Analysis**: Sends the issue + relevant code to LLM for root cause analysis and fix generation
 6. **Test Verification** (optional): Runs project tests before and after applying the fix
 7. **PR Creation**: Creates a new branch, commits the fix, and opens a Pull Request
+
+### Multi-Agent Mode (`--agent`)
+1. **Analyzer Agent**: Classifies the issue, identifies root cause, generates targeted search queries
+2. **Search Agent**: Performs multi-strategy RAG search (by query, by affected areas, for tests)
+3. **Fix Agent**: Generates SEARCH/REPLACE patches using context from previous agents
+4. **Review Agent**: Validates fix quality, provides feedback for improvement
+5. **Retry Loop**: If review fails, Fix Agent regenerates with review feedback (up to 2 iterations)
+6. **Feedback Learning**: Records outcomes and uses successful past fixes as few-shot examples
+
+### GitHub Webhook
+Automatically triggers the Multi-Agent pipeline when a new issue is opened. See [Webhook Setup](#webhook-setup) below.
+
+## Webhook Setup
+
+1. Start the webhook server:
+   ```bash
+   issue-fixer web --port 8000
+   ```
+
+2. In your GitHub repo, go to **Settings → Webhooks → Add webhook**
+3. Configure:
+   - **Payload URL**: `https://your-server:8000/api/webhook`
+   - **Content type**: `application/json`
+   - **Secret**: Set the same value as `GITHUB_WEBHOOK_SECRET` in your `.env`
+   - **Events**: Select "Issues"
+
+4. Check job status:
+   ```bash
+   curl http://localhost:8000/api/webhook/jobs
+   ```
 
 ## Contributing
 
