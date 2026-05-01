@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Issue Fixer - AI GitHub Issue Auto-Resolver</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        header p {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+        .input-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .input-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 1rem;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .options {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        input[type="checkbox"], input[type="number"] {
+            accent-color: var(--accent);
+        }
+        input[type="number"] {
+            width: 60px;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text);
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+        .btn-secondary:hover { background: #484f58; }
+        .btn-group {
+            display: flex;
+            gap: 0.75rem;
+        }
+        .result-section {
+            display: none;
+        }
+        .result-section.active {
+            display: block;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .card h3 {
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-success { background: rgba(63, 185, 80, 0.2); color: var(--success); }
+        .badge-warning { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
+        .badge-error { background: rgba(248, 81, 73, 0.2); color: var(--error); }
+        .badge-info { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
+        .file-list {
+            list-style: none;
+        }
+        .file-list li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+        }
+        .file-list li:last-child { border-bottom: none; }
+        .file-path {
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .file-reason {
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+        pre {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        code {
+            font-family: 'SFMono-Regular', Consolas, monospace;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .loading.active { display: block; }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-msg {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+        .test-verdict {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .config-status {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-align: right;
+            margin-bottom: 0.5rem;
+        }
+        .config-status .ok { color: var(--success); }
+        .config-status .err { color: var(--error); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Issue Fixer</h1>
+            <p>AI Agent that automatically reads GitHub Issues, analyzes code, and generates fixes</p>
+        </header>
+
+        <div class="config-status" id="configStatus"></div>
+
+        <div class="input-section">
+            <div class="input-group">
+                <input type="text" id="issueUrl" placeholder="https://github.com/owner/repo/issues/123" />
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="btnAnalyze" onclick="analyzeIssue()">Analyze</button>
+                    <button class="btn btn-secondary" id="btnPR" onclick="createPR()">Create PR</button>
+                </div>
+            </div>
+            <div class="options">
+                <label>
+                    Max files:
+                    <input type="number" id="maxFiles" value="5" min="1" max="20" />
+                </label>
+                <label>
+                    <input type="checkbox" id="runTests" />
+                    Run tests after fix
+                </label>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p class="status-msg" id="loadingMsg">Processing...</p>
+        </div>
+
+        <div class="result-section" id="results">
+            <div class="card" id="issueCard">
+                <h3>Issue</h3>
+                <div id="issueInfo"></div>
+            </div>
+
+            <div class="card" id="analysisCard">
+                <h3>Root Cause Analysis</h3>
+                <pre id="analysisText"></pre>
+            </div>
+
+            <div class="card" id="filesCard">
+                <h3>Files to Fix</h3>
+                <ul class="file-list" id="fileList"></ul>
+            </div>
+
+            <div class="card" id="testCard" style="display:none">
+                <h3>Test Verification</h3>
+                <div id="testResult"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+
+        async function checkConfig() {
+            try {
+                const res = await fetch(`${API}/api/config`);
+                const cfg = await res.json();
+                const el = document.getElementById('configStatus');
+                el.innerHTML = `
+                    Model: <span class="${cfg.has_openai_key ? 'ok' : 'err'}">${cfg.model}</span> |
+                    GitHub: <span class="${cfg.has_github_token ? 'ok' : 'err'}">${cfg.has_github_token ? 'OK' : 'Missing'}</span>
+                `;
+            } catch (e) {
+                document.getElementById('configStatus').textContent = 'API not reachable';
+            }
+        }
+
+        function setLoading(active, msg) {
+            document.getElementById('loading').className = active ? 'loading active' : 'loading';
+            document.getElementById('loadingMsg').textContent = msg || 'Processing...';
+            document.getElementById('btnAnalyze').disabled = active;
+            document.getElementById('btnPR').disabled = active;
+        }
+
+        async function analyzeIssue() {
+            const url = document.getElementById('issueUrl').value.trim();
+            if (!url) { alert('Please enter an Issue URL'); return; }
+
+            setLoading(true, 'Fetching issue and analyzing...');
+            document.getElementById('results').className = 'result-section';
+
+            try {
+                const res = await fetch(`${API}/api/fix`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        issue_url: url,
+                        max_files: parseInt(document.getElementById('maxFiles').value) || 5,
+                        run_tests: document.getElementById('runTests').checked,
+                    }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail?.error || err.detail || 'Request failed');
+                }
+
+                const data = await res.json();
+                renderResults(data);
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function createPR() {
+            const url = document.getElementById('issueUrl').value.trim();
+            if (!url) { alert('Please enter an Issue URL'); return; }
+            if (!confirm('This will create a Pull Request on the repository. Continue?')) return;
+
+            setLoading(true, 'Creating Pull Request...');
+
+            try {
+                const res = await fetch(`${API}/api/pr`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        issue_url: url,
+                        max_files: parseInt(document.getElementById('maxFiles').value) || 5,
+                    }),
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail?.error || 'Request failed');
+
+                if (data.pr_url) {
+                    alert(`PR created successfully!\n${data.pr_url}`);
+                    window.open(data.pr_url, '_blank');
+                } else {
+                    alert(data.message || 'No fix generated');
+                }
+            } catch (e) {
+                alert(`Error: ${e.message}`);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function renderResults(data) {
+            // Issue info
+            const issue = data.issue;
+            document.getElementById('issueInfo').innerHTML = `
+                <p><strong>#${issue.number}</strong> ${issue.title}</p>
+                <p style="color:var(--text-muted);margin-top:0.5rem">${issue.body}...</p>
+                <p style="margin-top:0.5rem">
+                    <span class="badge ${issue.state === 'open' ? 'badge-success' : 'badge-warning'}">${issue.state}</span>
+                    ${issue.labels.map(l => `<span class="badge badge-info">${l}</span>`).join(' ')}
+                </p>
+            `;
+
+            // Analysis
+            document.getElementById('analysisText').textContent = data.analysis;
+
+            // Files
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = data.files_fixed.map(f => `
+                <li>
+                    <div class="file-path">${f.path}</div>
+                    <div class="file-reason">${f.reason}</div>
+                </li>
+            `).join('');
+
+            // Tests
+            const testCard = document.getElementById('testCard');
+            if (data.test_result) {
+                testCard.style.display = 'block';
+                const tr = data.test_result;
+                const verdictColors = {
+                    pass: 'success', improved: 'success',
+                    regression: 'error', still_failing: 'warning', error: 'error'
+                };
+                const verdictLabels = {
+                    pass: 'Tests Pass', improved: 'Tests Improved',
+                    regression: 'REGRESSION', still_failing: 'Still Failing', error: 'Error'
+                };
+                document.getElementById('testResult').innerHTML = `
+                    <div class="test-verdict">
+                        <span class="badge badge-${verdictColors[tr.verdict] || 'warning'}">${verdictLabels[tr.verdict] || tr.verdict}</span>
+                    </div>
+                    <p style="font-size:0.875rem;color:var(--text-muted)">
+                        Before: ${tr.baseline_success ? 'Pass' : 'Fail'} (${tr.baseline_framework}) |
+                        After: ${tr.after_fix_success ? 'Pass' : 'Fail'} (${tr.after_fix_framework})
+                    </p>
+                `;
+            } else {
+                testCard.style.display = 'none';
+            }
+
+            document.getElementById('results').className = 'result-section active';
+        }
+
+        checkConfig();
+    </script>
+</body>
+</html>

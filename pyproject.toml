@@ -1,0 +1,29 @@
+[project]
+name = "issue-fixer"
+version = "0.2.0"
+description = "AI Agent that automatically fixes GitHub Issues and creates PRs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.30.0",
+    "pygithub>=2.3.0",
+    "chromadb>=0.5.0",
+    "tiktoken>=0.7.0",
+    "click>=8.1.0",
+    "rich>=13.7.0",
+    "python-dotenv>=1.0.0",
+    "gitpython>=3.1.43",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+]
+
+[project.scripts]
+issue-fixer = "issue_fixer.main:cli"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
