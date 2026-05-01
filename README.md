@@ -2,6 +2,12 @@
 
 > An AI Agent that automatically reads GitHub Issues, analyzes the codebase using RAG, generates fixes with LLM, and creates Pull Requests.
 
+<div align="right">
+
+**English** | [中文](./README_zh-CN.md)
+
+</div>
+
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -163,7 +169,8 @@ issue-fixer/
 ├── .env.example             # Environment variable template
 ├── .gitignore
 ├── LICENSE
-└── README.md
+├── README.md                # English
+└── README_zh-CN.md          # Chinese
 ```
 
 ## CLI Commands
