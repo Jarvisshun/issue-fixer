@@ -16,11 +16,15 @@
 ## 功能特性
 
 - **自动化 Issue 分析**：读取 Issue 的标题、描述、标签和评论，理解问题本质
-- **RAG 代码搜索**：使用 ChromaDB 索引仓库代码，通过语义搜索找到相关文件
+- **Hybrid RAG 搜索**：向量搜索（ChromaDB）+ BM25 关键词搜索 + RRF 重排序，精准检索代码
 - **LLM 驱动的修复生成**：使用大语言模型分析根因并生成完整的文件修复
 - **Diff/补丁模式**：生成精准的 SEARCH/REPLACE 补丁（Aider、Cursor、SWE-agent 等工具使用的行业标准模式）
-- **Multi-Agent 流水线**：四个专业 Agent（分析、搜索、修复、审查）协作生成更高质量的修复
+- **Multi-Agent 流水线**：五个专业 Agent（分析、搜索、修复、依赖检查、审查）协作生成更高质量的修复
 - **反馈学习系统**：记录修复历史，使用过去的成功案例作为 few-shot 示例来改进未来修复
+- **置信度评分**：基于补丁质量、审查、沙箱、依赖风险的综合评分（0-100）
+- **代码沙箱验证**：在 Python/JS/TS/Go/Rust 中对修复后的代码进行语法检查
+- **多文件关联分析**：检测跨文件 import，标记可能需要同步修改的依赖文件
+- **本地模型支持**：通过 Ollama 接入 Llama、Qwen、DeepSeek 等本地模型，支持隐私保护和离线使用
 - **GitHub Webhook**：监听 Issue 事件，自动触发修复流水线
 - **自动创建 PR**：创建新分支、提交修复、打开 Pull Request
 - **测试验证**：在修复前后运行项目测试套件，检测回归问题
@@ -190,12 +194,15 @@ Issue URL → GitHub 客户端 → 代码索引器
 issue-fixer/
 ├── issue_fixer/
 │   ├── __init__.py          # 包初始化
-│   ├── config.py            # 配置管理
+│   ├── config.py            # 配置管理（OpenAI + Ollama）
 │   ├── github_client.py     # GitHub API 客户端（Issue、仓库、PR）
-│   ├── code_indexer.py      # RAG 代码索引器（支持增量更新）
+│   ├── code_indexer.py      # Hybrid RAG：向量 + BM25 + RRF 重排序
 │   ├── analyzer.py          # LLM 驱动的 Issue 分析器（单 Agent）
 │   ├── patcher.py           # Diff/补丁引擎（SEARCH/REPLACE）
 │   ├── feedback.py          # 反馈学习系统
+│   ├── dependency.py        # 跨文件依赖分析
+│   ├── sandbox.py           # 代码语法验证沙箱
+│   ├── scoring.py           # 置信度评分（0-100）
 │   ├── test_runner.py       # 测试验证框架
 │   ├── main.py              # CLI 入口
 │   ├── agents/              # Multi-Agent 系统
@@ -230,6 +237,7 @@ issue-fixer/
 | `issue-fixer fix <URL> --mode diff` | 使用 diff/补丁模式（默认） |
 | `issue-fixer fix <URL> --mode full` | 使用完整文件重写模式 |
 | `issue-fixer fix <URL> --agent` | 使用 Multi-Agent 流水线（含审查循环） |
+| `issue-fixer fix <URL> --sandbox` | 沙箱语法验证 |
 | `issue-fixer web` | 启动 Web UI |
 | `issue-fixer stats` | 查看修复历史和成功率统计 |
 | `issue-fixer info` | 显示当前配置 |
@@ -240,10 +248,14 @@ issue-fixer/
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
+| `LLM_PROVIDER` | `openai` | LLM 提供商：`openai` 或 `ollama` |
 | `OPENAI_API_KEY` | （必填） | LLM 服务的 API Key |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API 端点（任何 OpenAI 兼容格式） |
 | `OPENAI_MODEL` | `gpt-4o` | 模型名称 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama 服务地址 |
+| `OLLAMA_MODEL` | `qwen2.5-coder:7b` | Ollama 模型名称 |
 | `GITHUB_TOKEN` | （必填） | GitHub Personal Access Token |
+| `GITHUB_WEBHOOK_SECRET` | （可选） | Webhook HMAC 密钥 |
 
 ## 支持的模型
 

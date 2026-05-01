@@ -21,32 +21,32 @@ class SearchAgent(BaseAgent):
         all_chunks = []
         seen_ids = set()
 
-        # Strategy 1: Use analyzer-generated search queries
+        # Strategy 1: Use analyzer-generated search queries (hybrid RAG)
         for query in ctx.search_queries:
-            chunks = self.indexer.search(query, top_k=5)
+            chunks = self.indexer.search(query, top_k=5, mode="hybrid")
             for chunk in chunks:
                 chunk_id = f"{chunk['file']}:{chunk['start_line']}"
                 if chunk_id not in seen_ids:
                     seen_ids.add(chunk_id)
                     all_chunks.append(chunk)
 
-        # Strategy 2: Search by affected areas
+        # Strategy 2: Search by affected areas (hybrid RAG)
         for area in ctx.affected_areas:
-            chunks = self.indexer.search(area, top_k=3)
+            chunks = self.indexer.search(area, top_k=3, mode="hybrid")
             for chunk in chunks:
                 chunk_id = f"{chunk['file']}:{chunk['start_line']}"
                 if chunk_id not in seen_ids:
                     seen_ids.add(chunk_id)
                     all_chunks.append(chunk)
 
-        # Strategy 3: Search for test files
+        # Strategy 3: Search for test files (hybrid RAG)
         test_queries = [
             f"test {ctx.issue.get('title', '')}",
             f"test {ctx.issue_type}",
         ]
         test_chunks = []
         for query in test_queries:
-            chunks = self.indexer.search(query, top_k=3)
+            chunks = self.indexer.search(query, top_k=3, mode="hybrid")
             for chunk in chunks:
                 chunk_id = f"{chunk['file']}:{chunk['start_line']}"
                 if chunk_id not in seen_ids:

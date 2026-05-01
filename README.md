@@ -16,11 +16,15 @@
 ## Features
 
 - **Automated Issue Analysis**: Reads issue title, body, labels, and comments to understand the problem
-- **RAG-based Code Search**: Indexes the repository code with ChromaDB and finds relevant files using semantic search
+- **Hybrid RAG Search**: Vector search (ChromaDB) + BM25 keyword search + RRF reranking for precise code retrieval
 - **LLM-powered Fix Generation**: Uses large language models to analyze root causes and generate complete file fixes
 - **Diff/Patch Mode**: Generates targeted SEARCH/REPLACE patches (industry-standard pattern used by Aider, Cursor, SWE-agent)
-- **Multi-Agent Pipeline**: Four specialized agents (Analyzer, Search, Fix, Review) collaborate for higher quality fixes
+- **Multi-Agent Pipeline**: Five specialized agents (Analyzer, Search, Fix, DepCheck, Review) collaborate for higher quality fixes
 - **Feedback Learning**: Records fix history and uses past successes as few-shot examples to improve future fixes
+- **Confidence Scoring**: Composite score (0-100) based on patch quality, review, sandbox, and dependency risk
+- **Code Sandbox Verification**: Syntax-checks fixed files in Python, JS/TS, Go, and Rust without running them
+- **Multi-file Dependency Analysis**: Detects cross-file imports and flags dependent files that may need coordinated updates
+- **Local Model Support**: Run with Ollama (Llama, Qwen, DeepSeek) for privacy and offline use
 - **GitHub Webhook**: Auto-triggers fix pipeline when new issues are opened
 - **Automatic PR Creation**: Creates a new branch, commits the fix, and opens a Pull Request
 - **Test Verification**: Runs the project's test suite before and after the fix to detect regressions
@@ -190,12 +194,15 @@ Issue URL → GitHub Client → Code Indexer
 issue-fixer/
 ├── issue_fixer/
 │   ├── __init__.py          # Package init
-│   ├── config.py            # Configuration management
+│   ├── config.py            # Configuration management (OpenAI + Ollama)
 │   ├── github_client.py     # GitHub API client (issues, repos, PRs)
-│   ├── code_indexer.py      # RAG code indexer with incremental updates
+│   ├── code_indexer.py      # Hybrid RAG: vector + BM25 + RRF reranking
 │   ├── analyzer.py          # LLM-powered issue analyzer (single-agent)
 │   ├── patcher.py           # Diff/patch engine (SEARCH/REPLACE)
 │   ├── feedback.py          # Feedback learning system
+│   ├── dependency.py        # Cross-file dependency analysis
+│   ├── sandbox.py           # Code syntax verification sandbox
+│   ├── scoring.py           # Confidence scoring (0-100)
 │   ├── test_runner.py       # Test verification framework
 │   ├── main.py              # CLI entry point
 │   ├── agents/              # Multi-Agent system
@@ -230,6 +237,7 @@ issue-fixer/
 | `issue-fixer fix <URL> --mode diff` | Use diff/patch mode (default) |
 | `issue-fixer fix <URL> --mode full` | Use full file rewrite mode |
 | `issue-fixer fix <URL> --agent` | Use Multi-Agent pipeline with review loop |
+| `issue-fixer fix <URL> --sandbox` | Verify fix with syntax sandbox |
 | `issue-fixer web` | Start Web UI |
 | `issue-fixer stats` | Show fix history and success rate |
 | `issue-fixer info` | Show current configuration |
@@ -240,10 +248,14 @@ All settings can be configured via environment variables or `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `LLM_PROVIDER` | `openai` | LLM provider: `openai` or `ollama` |
 | `OPENAI_API_KEY` | (required) | API key for LLM service |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API endpoint (any OpenAI-compatible) |
 | `OPENAI_MODEL` | `gpt-4o` | Model name |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MODEL` | `qwen2.5-coder:7b` | Ollama model name |
 | `GITHUB_TOKEN` | (required) | GitHub Personal Access Token |
+| `GITHUB_WEBHOOK_SECRET` | (optional) | Webhook HMAC secret |
 
 ## Supported Models
 

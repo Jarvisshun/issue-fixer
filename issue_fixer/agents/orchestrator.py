@@ -1,13 +1,15 @@
 """Orchestrator: Coordinates the Multi-Agent pipeline.
 
 Pipeline flow:
-  Analyzer → Search → Fix → Review
-                        ↑        │
-                        └────────┘  (retry if not approved)
+  Analyzer → Search → Fix → DepCheck → Review
+                        ↑               │
+                        └───────────────┘  (retry if not approved)
 
 Each agent is independent and communicates through AgentContext.
 The orchestrator manages the flow, retries, and error handling.
 """
+
+from pathlib import Path
 
 from rich.console import Console
 
@@ -17,6 +19,8 @@ from .search_agent import SearchAgent
 from .fix_agent import FixAgent
 from .review_agent import ReviewAgent
 from ..code_indexer import CodeIndexer
+from ..dependency import build_dependency_graph, find_affected_files, format_dependency_report
+from ..scoring import compute_confidence, format_confidence
 
 console = Console(force_terminal=True)
 
@@ -87,6 +91,22 @@ class AgentOrchestrator:
                 console.print("  [yellow]  No fix could be generated.[/yellow]")
                 break
 
+            # Stage 3b: Dependency analysis
+            if ctx.repo_dir and ctx.files_to_fix:
+                console.print("  [dim]→ Dependency Agent: checking cross-file deps...[/dim]")
+                changed = [f["path"] for f in ctx.files_to_fix]
+                code_files = list(Path(ctx.repo_dir).rglob("*.*"))
+                dep_graph = build_dependency_graph(ctx.repo_dir, code_files)
+                affected = find_affected_files(changed, dep_graph)
+                if affected:
+                    report = format_dependency_report(affected)
+                    console.print(f"  [yellow]  {report}[/yellow]")
+                    # Add affected files info to context for the Review Agent
+                    ctx.review_feedback = (
+                        f"Cross-file dependencies detected:\n{report}\n\n"
+                        + (ctx.review_feedback or "")
+                    )
+
             # Stage 4: Review
             console.print("  [dim]→ Review Agent: validating fix quality...[/dim]")
             ctx = self.review.run(ctx)
@@ -115,6 +135,20 @@ class AgentOrchestrator:
                         f"Using best effort (score: {ctx.review_score})[/yellow]"
                     )
 
+        # Stage 5: Confidence scoring
+        console.print("  [dim]→ Scoring Agent: computing confidence...[/dim]")
+        confidence = compute_confidence(
+            files_to_fix=ctx.files_to_fix,
+            review_score=ctx.review_score,
+            affected_files=sum(len(v) for v in (
+                find_affected_files(
+                    [f["path"] for f in ctx.files_to_fix],
+                    build_dependency_graph(ctx.repo_dir, list(Path(ctx.repo_dir).rglob("*.*")))
+                ).values() if ctx.repo_dir else []
+            )),
+        )
+        console.print(f"  {format_confidence(confidence)}")
+
         # Build result dict (compatible with existing interface)
         analysis_parts = [
             f"**Type:** {ctx.issue_type}",
@@ -124,6 +158,7 @@ class AgentOrchestrator:
             analysis_parts.append(f"**Fix Strategy:** {ctx.fix_strategy}")
         if ctx.review_feedback:
             analysis_parts.append(f"**Review:** {ctx.review_feedback}")
+        analysis_parts.append(f"**Confidence:** {confidence.total}/100 ({confidence.label})")
 
         return {
             "analysis": "\n\n".join(analysis_parts),
@@ -135,4 +170,7 @@ class AgentOrchestrator:
             "review_score": ctx.review_score,
             "review_approved": ctx.review_approved,
             "iterations": ctx.iteration,
+            "confidence": confidence.total,
+            "confidence_label": confidence.label,
+            "needs_review": confidence.needs_review,
         }

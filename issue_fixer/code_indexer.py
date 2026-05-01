@@ -1,13 +1,121 @@
-"""Code indexer using ChromaDB for RAG-based code search, with incremental indexing."""
+"""Hybrid RAG code indexer: vector search (ChromaDB) + BM25 keyword search + RRF reranking."""
 
 import hashlib
 import json
+import math
+import re
+from collections import Counter
 from pathlib import Path
 
 import chromadb
 import tiktoken
 
 from .config import config
+
+
+# ─── BM25 Implementation ────────────────────────────────────────────────────
+
+class BM25:
+    """Okapi BM25 scorer for keyword-based code search.
+
+    Complements vector search by excelling at exact identifier matches,
+    function names, error messages, and technical terms.
+    """
+
+    def __init__(self, k1: float = 1.5, b: float = 0.75):
+        self.k1 = k1
+        self.b = b
+        self.corpus_tokens: list[list[str]] = []
+        self.doc_freqs: list[Counter] = []
+        self.doc_lengths: list[int] = []
+        self.avg_dl: float = 0.0
+        self.df: Counter = Counter()  # document frequency per term
+        self.num_docs: int = 0
+
+    def _tokenize(self, text: str) -> list[str]:
+        """Tokenize code: split on non-alphanumeric, lowercase, keep underscores."""
+        tokens = re.findall(r'[a-zA-Z_]\w*', text.lower())
+        return tokens
+
+    def fit(self, documents: list[str]):
+        """Build BM25 index from document texts."""
+        self.corpus_tokens = []
+        self.doc_freqs = []
+        self.doc_lengths = []
+        self.df = Counter()
+
+        for doc in documents:
+            tokens = self._tokenize(doc)
+            self.corpus_tokens.append(tokens)
+            freq = Counter(tokens)
+            self.doc_freqs.append(freq)
+            self.doc_lengths.append(len(tokens))
+            for term in set(tokens):
+                self.df[term] += 1
+
+        self.num_docs = len(documents)
+        self.avg_dl = sum(self.doc_lengths) / self.num_docs if self.num_docs else 0
+
+    def score(self, query: str, top_k: int = 10) -> list[tuple[int, float]]:
+        """Score all documents against query, return (doc_index, score) sorted desc."""
+        query_tokens = self._tokenize(query)
+        scores = []
+
+        for i in range(self.num_docs):
+            score = 0.0
+            dl = self.doc_lengths[i]
+            freq = self.doc_freqs[i]
+
+            for qt in query_tokens:
+                if qt not in freq:
+                    continue
+                tf = freq[qt]
+                df = self.df.get(qt, 0)
+                idf = math.log((self.num_docs - df + 0.5) / (df + 0.5) + 1.0)
+                tf_norm = (tf * (self.k1 + 1)) / (tf + self.k1 * (1 - self.b + self.b * dl / self.avg_dl))
+                score += idf * tf_norm
+
+            scores.append((i, score))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores[:top_k]
+
+
+# ─── RRF Fusion ─────────────────────────────────────────────────────────────
+
+def _rrf_fuse(
+    vector_results: list[dict],
+    bm25_results: list[dict],
+    k: int = 60,
+    top_k: int = 10,
+) -> list[dict]:
+    """Reciprocal Rank Fusion: merge two ranked lists.
+
+    RRF score = sum(1 / (k + rank_i)) across all lists.
+    k=60 is the standard constant from the original RRF paper.
+    """
+    score_map: dict[str, float] = {}
+    doc_map: dict[str, dict] = {}
+
+    for rank, doc in enumerate(vector_results):
+        doc_id = f"{doc['file']}:{doc['start_line']}"
+        score_map[doc_id] = score_map.get(doc_id, 0) + 1.0 / (k + rank + 1)
+        doc_map[doc_id] = doc
+
+    for rank, doc in enumerate(bm25_results):
+        doc_id = f"{doc['file']}:{doc['start_line']}"
+        score_map[doc_id] = score_map.get(doc_id, 0) + 1.0 / (k + rank + 1)
+        if doc_id not in doc_map:
+            doc_map[doc_id] = doc
+
+    ranked = sorted(score_map.items(), key=lambda x: x[1], reverse=True)
+    results = []
+    for doc_id, rrf_score in ranked[:top_k]:
+        doc = doc_map[doc_id].copy()
+        doc["rrf_score"] = rrf_score
+        results.append(doc)
+
+    return results
 
 
 def _count_tokens(text: str) -> int:
@@ -73,15 +181,17 @@ def _chunk_code(text: str, file_path: str, chunk_size: int, overlap: int) -> lis
 
 
 class CodeIndexer:
-    """Index code files into ChromaDB for semantic search, with incremental updates."""
+    """Hybrid RAG indexer: ChromaDB vector search + BM25 keyword search + RRF fusion."""
 
     def __init__(self):
         self.client = chromadb.Client()
         self.collection = None
         self._manifest: dict[str, str] = {}  # rel_path -> content_hash
+        self._bm25 = BM25()
+        self._all_chunks: list[dict] = []  # kept for BM25 scoring
 
     def index_files(self, repo_dir: Path, code_files: list[Path]) -> int:
-        """Index all code files into ChromaDB. Returns number of new/updated files."""
+        """Index all code files into ChromaDB + BM25. Returns number of new/updated files."""
         self.collection = self.client.create_collection(
             name="code_index",
             metadata={"hnsw:space": "cosine"},
@@ -102,7 +212,13 @@ class CodeIndexer:
         if not all_chunks:
             return 0
 
+        # Vector index (ChromaDB)
         self._batch_insert(all_chunks)
+
+        # BM25 keyword index
+        self._all_chunks = all_chunks
+        self._bm25.fit([c["text"] for c in all_chunks])
+
         return len(code_files)
 
     def index_incremental(self, repo_dir: Path, code_files: list[Path]) -> dict:
@@ -182,14 +298,37 @@ class CodeIndexer:
                 } for c in batch],
             )
 
-    def search(self, query: str, top_k: int | None = None) -> list[dict]:
-        """Search for relevant code chunks."""
+    def search(self, query: str, top_k: int | None = None, mode: str = "hybrid") -> list[dict]:
+        """Search for relevant code chunks.
+
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            mode: "hybrid" (vector+BM25+RRF), "vector" (ChromaDB only), or "bm25" (keyword only)
+
+        Returns:
+            List of matching chunks with text, file, lines, and score.
+        """
         if not self.collection:
             return []
 
         k = top_k or config.top_k
-        results = self.collection.query(query_texts=[query], n_results=k)
 
+        if mode == "bm25":
+            return self._search_bm25(query, k)
+        elif mode == "vector":
+            return self._search_vector(query, k)
+        else:  # hybrid
+            # Get more candidates from each method for better fusion
+            fetch_k = min(k * 2, 30)
+            vector_results = self._search_vector(query, fetch_k)
+            bm25_results = self._search_bm25(query, fetch_k)
+            fused = _rrf_fuse(vector_results, bm25_results, top_k=k)
+            return fused
+
+    def _search_vector(self, query: str, k: int) -> list[dict]:
+        """Pure vector search via ChromaDB."""
+        results = self.collection.query(query_texts=[query], n_results=k)
         matches = []
         for i in range(len(results["ids"][0])):
             matches.append({
@@ -200,3 +339,16 @@ class CodeIndexer:
                 "distance": results["distances"][0][i] if results.get("distances") else 0,
             })
         return matches
+
+    def _search_bm25(self, query: str, k: int) -> list[dict]:
+        """Pure BM25 keyword search."""
+        scored = self._bm25.score(query, top_k=k)
+        results = []
+        for idx, score in scored:
+            if score <= 0:
+                continue
+            chunk = self._all_chunks[idx].copy()
+            chunk["bm25_score"] = score
+            chunk["distance"] = 1.0 - min(score / 10.0, 1.0)  # normalize to distance-like
+            results.append(chunk)
+        return results

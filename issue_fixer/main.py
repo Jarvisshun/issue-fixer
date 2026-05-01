@@ -24,6 +24,7 @@ from .code_indexer import CodeIndexer
 from .analyzer import Analyzer
 from .agents import AgentOrchestrator
 from .test_runner import verify_fix
+from .sandbox import verify_files, summarize_results
 from .feedback import feedback_store, FixRecord
 
 console = Console(force_terminal=True)
@@ -52,7 +53,8 @@ def cli():
 @click.option("--verify", is_flag=True, help="Run project tests to verify the fix")
 @click.option("--mode", type=click.Choice(["diff", "full"]), default="diff", help="Fix mode: diff (patch) or full (rewrite)")
 @click.option("--agent", is_flag=True, help="Use Multi-Agent pipeline (Analyzer→Search→Fix→Review)")
-def fix(issue_url: str, no_pr: bool, max_files: int, verify: bool, mode: str, agent: bool):
+@click.option("--sandbox", is_flag=True, help="Run syntax verification in sandbox after fix")
+def fix(issue_url: str, no_pr: bool, max_files: int, verify: bool, mode: str, agent: bool, sandbox: bool):
     """Fix a GitHub Issue and optionally create a PR.
 
     Modes:
@@ -190,6 +192,18 @@ def fix(issue_url: str, no_pr: bool, max_files: int, verify: bool, mode: str, ag
             if verdict == "regression":
                 console.print("[red]Warning: Fix may have introduced regressions![/red]")
 
+    # Step 5b: Optionally verify syntax in sandbox
+    if sandbox:
+        console.print("[bold green]Running sandbox syntax verification...[/bold green]")
+        file_changes = {f["path"]: f["fixed_content"] for f in files_to_fix if f.get("fixed_content")}
+        if file_changes:
+            sandbox_results = verify_files(file_changes)
+            summary = summarize_results(sandbox_results)
+            console.print(f"  {summary}")
+            for path, r in sandbox_results.items():
+                if not r.success:
+                    console.print(f"  [red]FAIL[/red] {path}: {r.stderr[:200]}")
+
     # Step 6: Create PR or just show results
     changed_files = [f["path"] for f in files_to_fix if f.get("fixed_content")]
 
@@ -293,15 +307,24 @@ def fix(issue_url: str, no_pr: bool, max_files: int, verify: bool, mode: str, ag
 @cli.command()
 def info():
     """Show current configuration."""
-    console.print(Panel(
-        f"[bold]Model:[/bold] {config.openai_model}\n"
-        f"[bold]Base URL:[/bold] {config.openai_base_url}\n"
-        f"[bold]OpenAI Key:[/bold] {'Set' if config.openai_api_key else 'Not set'}\n"
+    provider_info = f"[bold]LLM Provider:[/bold] {config.llm_provider}\n"
+    if config.llm_provider == "ollama":
+        provider_info += (
+            f"[bold]Ollama URL:[/bold] {config.ollama_base_url}\n"
+            f"[bold]Ollama Model:[/bold] {config.ollama_model}\n"
+        )
+    else:
+        provider_info += (
+            f"[bold]Model:[/bold] {config.openai_model}\n"
+            f"[bold]Base URL:[/bold] {config.openai_base_url}\n"
+            f"[bold]API Key:[/bold] {'Set' if config.openai_api_key else 'Not set'}\n"
+        )
+    provider_info += (
         f"[bold]GitHub Token:[/bold] {'Set' if config.github_token else 'Not set'}\n"
         f"[bold]Chunk Size:[/bold] {config.chunk_size}\n"
-        f"[bold]Top K:[/bold] {config.top_k}",
-        title="Configuration",
-    ))
+        f"[bold]Top K:[/bold] {config.top_k}"
+    )
+    console.print(Panel(provider_info, title="Configuration"))
 
 
 @cli.command()

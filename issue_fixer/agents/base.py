@@ -8,14 +8,18 @@ from .context import AgentContext
 
 
 class BaseAgent(ABC):
-    """Base class for all agents in the system."""
+    """Base class for all agents in the system.
+
+    Supports any OpenAI-compatible API (OpenAI, DeepSeek, MiMo, etc.)
+    and local models via Ollama.
+    """
 
     def __init__(self):
         self.client = OpenAI(
-            api_key=config.openai_api_key,
-            base_url=config.openai_base_url,
+            api_key=config.llm_api_key,
+            base_url=config.llm_base_url,
         )
-        self.model = config.openai_model
+        self.model = config.llm_model
 
     @abstractmethod
     def run(self, ctx: AgentContext) -> AgentContext:
@@ -23,7 +27,11 @@ class BaseAgent(ABC):
         ...
 
     def _call_llm(self, messages: list[dict], temperature: float = 0.1) -> str:
-        """Call LLM with fallback for response_format."""
+        """Call LLM with fallback for response_format.
+
+        Ollama models may not support json_object response_format,
+        so we try with it first and fall back without.
+        """
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,

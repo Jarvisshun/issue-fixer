@@ -146,7 +146,7 @@ def _call_llm(client: OpenAI, messages: list[dict]) -> str:
     """Call LLM, trying with response_format first, falling back without it."""
     try:
         response = client.chat.completions.create(
-            model=config.openai_model,
+            model=config.llm_model,
             messages=messages,
             temperature=0.1,
             response_format={"type": "json_object"},
@@ -156,7 +156,7 @@ def _call_llm(client: OpenAI, messages: list[dict]) -> str:
         pass
 
     response = client.chat.completions.create(
-        model=config.openai_model,
+        model=config.llm_model,
         messages=messages,
         temperature=0.1,
     )
@@ -173,8 +173,8 @@ class Analyzer:
 
     def __init__(self, indexer: CodeIndexer):
         self.client = OpenAI(
-            api_key=config.openai_api_key,
-            base_url=config.openai_base_url,
+            api_key=config.llm_api_key,
+            base_url=config.llm_base_url,
         )
         self.indexer = indexer
 
